@@ -1,9 +1,9 @@
 use crate::component::{
     convert_from_snake_case, drain_filter, is_option, unwrap_option, Docs,
 };
-use attribute_derive::Attribute as AttributeDerive;
+use attribute_derive::FromAttr;
 use proc_macro2::{Ident, TokenStream};
-use quote::{ToTokens, TokenStreamExt};
+use quote::{quote, ToTokens, TokenStreamExt};
 use syn::{
     parse::Parse, parse_quote, Field, ItemStruct, LitStr, Meta, Type,
     Visibility,
@@ -90,6 +90,20 @@ impl ToTokens for Model {
                     vec![value]
                 }
             }
+
+            /*impl #impl_generics ::leptos::Props for #name #generics #where_clause {
+                type Builder = #builder_name #generics;
+                fn builder() -> Self::Builder {
+                    #name::builder()
+                }
+            }
+
+            impl #impl_generics ::leptos::DynAttrs for #name #generics #where_clause {
+                fn dyn_attrs(mut self, v: Vec<(&'static str, ::leptos::Attribute)>) -> Self {
+                    #dyn_attrs_props
+                    self
+                }
+            }*/
         };
 
         tokens.append_all(output)
@@ -130,7 +144,7 @@ impl Prop {
     }
 }
 
-#[derive(Clone, Debug, AttributeDerive)]
+#[derive(Clone, Debug, FromAttr)]
 #[attribute(ident = prop)]
 struct PropOpt {
     #[attribute(conflicts = [optional_no_strip, strip_option])]
@@ -142,6 +156,7 @@ struct PropOpt {
     #[attribute(example = "5 * 10")]
     pub default: Option<syn::Expr>,
     pub into: bool,
+    pub attrs: bool,
 }
 
 struct TypedBuilderOpts {
@@ -154,7 +169,7 @@ struct TypedBuilderOpts {
 impl TypedBuilderOpts {
     pub fn from_opts(opts: &PropOpt, is_ty_option: bool) -> Self {
         Self {
-            default: opts.optional || opts.optional_no_strip,
+            default: opts.optional || opts.optional_no_strip || opts.attrs,
             default_with_value: opts.default.clone(),
             strip_option: opts.strip_option || opts.optional && is_ty_option,
             into: opts.into,

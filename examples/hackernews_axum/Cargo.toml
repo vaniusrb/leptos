@@ -11,31 +11,28 @@ codegen-units = 1
 lto = true
 
 [dependencies]
-console_log = "1.0.0"
 console_error_panic_hook = "0.1.7"
-cfg-if = "1.0.0"
-leptos = { path = "../../leptos", features = ["nightly"] }
+leptos = { path = "../../leptos" }
 leptos_axum = { path = "../../integrations/axum", optional = true }
-leptos_meta = { path = "../../meta", features = ["nightly"] }
-leptos_router = { path = "../../router", features = ["nightly"] }
-log = "0.4.17"
-simple_logger = "4.0.0"
-serde = { version = "1.0.148", features = ["derive"] }
-tracing = "0.1"
-gloo-net = { version = "0.2.5", features = ["http"] }
-reqwest = { version = "0.11.13", features = ["json"] }
-axum = { version = "0.6.1", optional = true }
+leptos_meta = { path = "../../meta" }
+leptos_router = { path = "../../router" }
+serde = { version = "1.0", features = ["derive"] }
+tracing = "0.1.40"
+gloo-net = { version = "0.6.0", features = ["http"] }
+reqwest = { version = "0.12.5", features = ["json"] }
+axum = { version = "0.8.1", optional = true }
 tower = { version = "0.4.13", optional = true }
-tower-http = { version = "0.4", features = ["fs"], optional = true }
-tokio = { version = "1.22.0", features = ["full"], optional = true }
-http = { version = "0.2.8", optional = true }
-web-sys = { version = "0.3", features = ["AbortController", "AbortSignal"] }
-wasm-bindgen = "0.2"
+tower-http = { version = "0.5.2", features = ["fs"], optional = true }
+tokio = { version = "1.39", features = ["full"], optional = true }
+http = { version = "1.1", optional = true }
+web-sys = { version = "0.3.70", features = ["AbortController", "AbortSignal"] }
+wasm-bindgen = "0.2.93"
+send_wrapper = { version = "0.6.0", features = ["futures"] }
 
 [features]
 default = ["csr"]
-csr = ["leptos/csr", "leptos_meta/csr", "leptos_router/csr"]
-hydrate = ["leptos/hydrate", "leptos_meta/hydrate", "leptos_router/hydrate"]
+csr = ["leptos/csr"]
+hydrate = ["leptos/hydrate"]
 ssr = [
   "dep:axum",
   "dep:tower",
@@ -50,7 +47,7 @@ ssr = [
 
 [package.metadata.cargo-all-features]
 denylist = ["axum", "tower", "tower-http", "tokio", "http", "leptos_axum"]
-skip_feature_sets = [["csr", "ssr"], ["csr", "hydrate"], ["ssr", "hydrate"]]
+skip_feature_sets = [["csr", "ssr"], ["csr", "hydrate"], ["ssr", "hydrate"], []]
 
 [package.metadata.leptos]
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
@@ -72,7 +69,7 @@ reload-port = 3001
 end2end-cmd = "npx playwright test"
 #  The browserlist query used for optimizing the CSS.
 browserquery = "defaults"
-# Set by cargo-leptos watch when building with tha tool. Controls whether autoreload JS will be included in the head
+# Set by cargo-leptos watch when building with that tool. Controls whether autoreload JS will be included in the head
 watch = false
 # The environment Leptos will run in, usually either "DEV" or "PROD"
 env = "DEV"

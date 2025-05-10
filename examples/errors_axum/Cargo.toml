@@ -7,26 +7,22 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-console_log = "1.0.0"
 console_error_panic_hook = "0.1.7"
-cfg-if = "1.0.0"
-leptos = { path = "../../leptos", features = ["nightly"] }
+leptos = { path = "../../leptos" }
 leptos_axum = { path = "../../integrations/axum", optional = true }
 leptos_meta = { path = "../../meta" }
 leptos_router = { path = "../../router" }
-log = "0.4.17"
-serde = { version = "1", features = ["derive"] }
-simple_logger = "4.0.0"
-axum = { version = "0.6.1", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+axum = { version = "0.8.1", optional = true }
 tower = { version = "0.4.13", optional = true }
-tower-http = { version = "0.4", features = ["fs"], optional = true }
-tokio = { version = "1.22.0", features = ["full"], optional = true }
-http = { version = "0.2.8" }
-thiserror = "1.0.38"
-wasm-bindgen = "0.2"
+tower-http = { version = "0.5.2", features = ["fs"], optional = true }
+tokio = { version = "1.39", features = ["full"], optional = true }
+http = { version = "1.1" }
+thiserror = "1.0"
+wasm-bindgen = "0.2.93"
 
 [features]
-hydrate = ["leptos/hydrate", "leptos_meta/hydrate", "leptos_router/hydrate"]
+hydrate = ["leptos/hydrate"]
 ssr = [
   "dep:axum",
   "dep:tower",
@@ -40,7 +36,7 @@ ssr = [
 
 [package.metadata.cargo-all-features]
 denylist = ["axum", "tower", "tower-http", "tokio", "leptos_axum"]
-skip_feature_sets = [["ssr", "hydrate"]]
+skip_feature_sets = [["ssr", "hydrate"], []]
 
 [package.metadata.leptos]
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
@@ -62,7 +58,7 @@ reload-port = 3001
 end2end-cmd = "npx playwright test"
 #  The browserlist query used for optimizing the CSS.
 browserquery = "defaults"
-# Set by cargo-leptos watch when building with tha tool. Controls whether autoreload JS will be included in the head
+# Set by cargo-leptos watch when building with that tool. Controls whether autoreload JS will be included in the head
 watch = false
 # The environment Leptos will run in, usually either "DEV" or "PROD"
 env = "DEV"

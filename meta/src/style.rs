@@ -1,10 +1,13 @@
-use crate::use_head;
-use leptos::{nonce::use_nonce, *};
+use crate::{register, OrDefaultNonce};
+use leptos::{
+    component, oco::Oco, prelude::*, tachys::html::element::style, IntoView,
+};
 
-/// Injects an [HTMLStyleElement](https://developer.mozilla.org/en-US/docs/Web/API/HTMLStyleElement) into the document
+/// Injects an [`HTMLStyleElement`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLStyleElement) into the document
 /// head, accepting any of the valid attributes for that tag.
+///
 /// ```
-/// use leptos::*;
+/// use leptos::prelude::*;
 /// use leptos_meta::*;
 ///
 /// #[component]
@@ -20,7 +23,7 @@ use leptos::{nonce::use_nonce, *};
 ///     }
 /// }
 /// ```
-#[component(transparent)]
+#[component]
 pub fn Style(
     /// An ID for the `<script>` tag.
     #[prop(optional, into)]
@@ -39,40 +42,15 @@ pub fn Style(
     blocking: Option<Oco<'static, str>>,
     /// The content of the `<style>` tag.
     #[prop(optional)]
-    children: Option<Box<dyn FnOnce() -> Fragment>>,
+    children: Option<Children>,
 ) -> impl IntoView {
-    let meta = use_head();
-    let next_id = meta.tags.get_next_id();
-    let id: Oco<'static, str> =
-        id.unwrap_or_else(|| format!("leptos-link-{}", next_id.0).into());
-
-    let builder_el = leptos::leptos_dom::html::as_meta_tag({
-        let id = id.clone();
-        move || {
-            leptos::leptos_dom::html::style()
-                .attr("id", id)
-                .attr("media", media)
-                .attr("nonce", nonce)
-                .attr("title", title)
-                .attr("blocking", blocking)
-                .attr("nonce", use_nonce())
-        }
-    });
-    let builder_el = if let Some(children) = children {
-        let frag = children();
-        let mut style = String::new();
-        for node in frag.nodes {
-            match node {
-                View::Text(text) => style.push_str(&text.content),
-                _ => leptos::warn!(
-                    "Only text nodes are supported as children of <Style/>."
-                ),
-            }
-        }
-        builder_el.child(style)
-    } else {
-        builder_el
-    };
-
-    meta.tags.register(id, builder_el.into_any());
+    register(
+        style()
+            .id(id)
+            .media(media)
+            .nonce(nonce.or_default_nonce())
+            .title(title)
+            .blocking(blocking)
+            .child(children.map(|c| c())),
+    )
 }

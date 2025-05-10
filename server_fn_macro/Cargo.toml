@@ -1,14 +1,15 @@
 [package]
 name = "server_fn_macro"
-version = { workspace = true }
-edition = "2021"
 authors = ["Greg Johnston"]
 license = "MIT"
 repository = "https://github.com/leptos-rs/leptos"
 description = "RPC for any web framework."
 readme = "../README.md"
+version = { workspace = true }
+edition.workspace = true
 
 [dependencies]
+<<<<<<< HEAD
 serde = { version = "1", features = ["derive"] }
 quote = "1"
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
@@ -16,7 +17,34 @@ proc-macro2 = "=1.0.94"
 proc-macro-error = "1"
 xxhash-rust = { version = "0.8.6", features = ["const_xxh64"] }
 const_format = "0.2.30"
+=======
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
+proc-macro2 = "1.0"
+xxhash-rust = { version = "0.8.12", features = ["const_xxh64"] }
+const_format = "0.2.33"
+convert_case = { workspace = true }
+
+
+[build-dependencies]
+rustc_version = "0.4.1"
+
+>>>>>>> 13110a35e2336cf2067b64064ed56cd1d8c4737f
 
 [features]
 nightly = []
 ssr = []
+actix = []
+axum = []
+generic = []
+reqwest = []
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
+
+[package.metadata.cargo-all-features]
+max_combination_size = 2
+skip_feature_sets = [["nightly"]]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rustc_nightly)'] }

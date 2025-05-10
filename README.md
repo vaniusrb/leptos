@@ -5,10 +5,13 @@
 
 [![crates.io](https://img.shields.io/crates/v/leptos.svg)](https://crates.io/crates/leptos)
 [![docs.rs](https://docs.rs/leptos/badge.svg)](https://docs.rs/leptos)
+![Crates.io MSRV](https://img.shields.io/crates/msrv/leptos)
 [![Discord](https://img.shields.io/discord/1031524867910148188?color=%237289DA&label=discord)](https://discord.gg/YdRAhS7eQB)
 [![Matrix](https://img.shields.io/badge/Matrix-leptos-grey?logo=matrix&labelColor=white&logoColor=black)](https://matrix.to/#/#leptos:matrix.org)
 
 [Website](https://leptos.dev) | [Book](https://leptos-rs.github.io/leptos/) | [Docs.rs](https://docs.rs/leptos/latest/leptos/) | [Playground](https://codesandbox.io/p/sandbox/leptos-rtfggt?file=%2Fsrc%2Fmain.rs%3A1%2C1) | [Discord](https://discord.gg/YdRAhS7eQB)
+
+You can find a list of useful libraries and example projects at [`awesome-leptos`](https://github.com/leptos-rs/awesome-leptos).
 
 # Leptos
 
@@ -18,7 +21,7 @@ use leptos::*;
 #[component]
 pub fn SimpleCounter(initial_value: i32) -> impl IntoView {
     // create a reactive signal with the initial value
-    let (value, set_value) = create_signal(initial_value);
+    let (value, set_value) = signal(initial_value);
 
     // create event handlers for our buttons
     // note that `value` and `set_value` are `Copy`, so it's super easy to move them into closures
@@ -38,6 +41,25 @@ pub fn SimpleCounter(initial_value: i32) -> impl IntoView {
     }
 }
 
+// we also support a builder syntax rather than the JSX-like `view` macro
+#[component]
+pub fn SimpleCounterWithBuilder(initial_value: i32) -> impl IntoView {
+    use leptos::html::*;
+
+    let (value, set_value) = signal(initial_value);
+    let clear = move |_| set_value(0);
+    let decrement = move |_| set_value.update(|value| *value -= 1);
+    let increment = move |_| set_value.update(|value| *value += 1);
+
+    // the `view` macro above expands to this builder syntax
+    div().child((
+        button().on(ev::click, clear).child("Clear"),
+        button().on(ev::click, decrement).child("-1"),
+        span().child(("Value: ", value, "!")),
+        button().on(ev::click, increment).child("+1")
+    ))
+}
+
 // Easy to use with Trunk (trunkrs.dev) or with a simple wasm-bindgen setup
 pub fn main() {
     mount_to_body(|| view! {
@@ -45,10 +67,6 @@ pub fn main() {
     })
 }
 ```
-
-### Important Note
-
-This example, and the entire `main` branch, now reflect the upcoming `0.5.0` release. You can use `0.5.0` with the `0.5.0-beta` release on crates.io or by a git dependency on the `main` branch of this repo. [Click here for the 0.4.9 `README`](https://crates.io/crates/leptos).
 
 ## About the Framework
 
@@ -133,44 +151,34 @@ There are several people in the community using Leptos right now for internal ap
 
 ### Can I use this for native GUI?
 
-Sure! Obviously the `view` macro is for generating DOM nodes but you can use the reactive system to drive native any GUI toolkit that uses the same kind of object-oriented, event-callback-based framework as the DOM pretty easily. The principles are the same:
+Sure! Obviously the `view` macro is for generating DOM nodes but you can use the reactive system to drive any native GUI toolkit that uses the same kind of object-oriented, event-callback-based framework as the DOM pretty easily. The principles are the same:
 
 - Use signals, derived signals, and memos to create your reactive system
 - Create GUI widgets
 - Use event listeners to update signals
 - Create effects to update the UI
 
-I've put together a [very simple GTK example](https://github.com/leptos-rs/leptos/blob/main/examples/gtk/src/main.rs) so you can see what I mean.
+The 0.7 update originally set out to create a "generic rendering" approach that would allow us to reuse most of the same view logic to do all of the above. Unfortunately, this has had to be shelved for now due to difficulties encountered by the Rust compiler when building larger-scale applications with the number of generics spread throughout the codebase that this required. It's an approach I'm looking forward to exploring again in the future; feel free to reach out if you're interested in this kind of work.
 
-### How is this different from Yew/Dioxus?
+### How is this different from Yew?
 
-On the surface level, these libraries may seem similar. Yew is, of course, the most mature Rust library for web UI development and has a huge ecosystem. Dioxus is similar in many ways, being heavily inspired by React. Here are some conceptual differences between Leptos and these frameworks:
+Yew is the most-used library for Rust web UI development, but there are several differences between Yew and Leptos, in philosophy, approach, and performance.
 
 - **VDOM vs. fine-grained:** Yew is built on the virtual DOM (VDOM) model: state changes cause components to re-render, generating a new virtual DOM tree. Yew diffs this against the previous VDOM, and applies those patches to the actual DOM. Component functions rerun whenever state changes. Leptos takes an entirely different approach. Components run once, creating (and returning) actual DOM nodes and setting up a reactive system to update those DOM nodes.
-- **Performance:** This has huge performance implications: Leptos is simply much faster at both creating and updating the UI than Yew is. (Dioxus has made huge advances in performance with its recent 0.3 release, and is now roughly on par with Leptos.)
-- **Mental model:** Adopting fine-grained reactivity also tends to simplify the mental model. There are no surprising component re-renders because there are no re-renders. You can call functions, create timeouts, etc. within the body of your component functions because they won’t be re-run. You don’t need to think about manual dependency tracking for effects; fine-grained reactivity tracks dependencies automatically.
+- **Performance:** This has huge performance implications: Leptos is simply much faster at both creating and updating the UI than Yew is.
+- **Server integration:** Yew was created in an era in which browser-rendered single-page apps (SPAs) were the dominant paradigm. While Leptos supports client-side rendering, it also focuses on integrating with the server side of your application via server functions and multiple modes of serving HTML, including out-of-order streaming.
+
+### How is this different from Dioxus?
+
+Like Leptos, Dioxus is a framework for building UIs using web technologies. However, there are significant differences in approach and features.
+
+- **VDOM vs. fine-grained:** While Dioxus has a performant virtual DOM (VDOM), it still uses coarse-grained/component-scoped reactivity: changing a stateful value reruns the component function and diffs the old UI against the new one. Leptos components use a different mental model, creating (and returning) actual DOM nodes and setting up a reactive system to update those DOM nodes.
+- **Web vs. desktop priorities:** Dioxus uses Leptos server functions in its fullstack mode, but does not have the same `<Suspense>`-based support for things like streaming HTML rendering, or share the same focus on holistic web performance. Leptos tends to prioritize holistic web performance (streaming HTML rendering, smaller WASM binary sizes, etc.), whereas Dioxus has an unparalleled experience when building desktop apps, because your application logic runs as a native Rust binary.
 
 ### How is this different from Sycamore?
 
-Conceptually, these two frameworks are very similar: because both are built on fine-grained reactivity, most apps will end up looking very similar between the two, and Sycamore or Leptos apps will both look a lot like SolidJS apps, in the same way that Yew or Dioxus can look a lot like React.
+Sycamore and Leptos are both heavily influenced by SolidJS. At this point, Leptos has a larger community and ecosystem and is more actively developed. Other differences:
 
-There are some practical differences that make a significant difference:
-
-- **Templating:** Leptos uses a JSX-like template format (built on [syn-rsx](https://github.com/stoically/syn-rsx)) for its `view` macro. Sycamore offers the choice of its own templating DSL or a builder syntax.
-- **Server integration:** Leptos provides primitives that encourage HTML streaming and allow for easy async integration and RPC calls, even without WASM enabled, making it easy to opt into integrations between your frontend and backend code without pushing you toward any particular metaframework patterns.
-- **Read-write segregation:** Leptos, like Solid, encourages read-write segregation between signal getters and setters, so you end up accessing signals with tuples like `let (count, set_count) = create_signal(0);` _(If you prefer or if it's more convenient for your API, you can use [`create_rw_signal`](https://docs.rs/leptos/latest/leptos/fn.create_rw_signal.html) to give a unified read/write signal.)_
-- **Signals are functions:** In Leptos, you can call a signal to access it rather than calling a specific method (so, `count()` instead of `count.get()`) This creates a more consistent mental model: accessing a reactive value is always a matter of calling a function. For example:
-
-  ```rust
-  let (count, set_count) = create_signal(0); // a signal
-  let double_count = move || count() * 2; // a derived signal
-  let memoized_count = create_memo(move |_| count() * 3); // a memo
-  // all are accessed by calling them
-  assert_eq!(count(), 0);
-  assert_eq!(double_count(), 0);
-  assert_eq!(memoized_count(), 0);
-  // this function can accept any of those signals
-  fn do_work_on_signal(my_signal: impl Fn() -> i32) { ... }
-  ```
-
-- **Signals and scopes are `'static`:** Both Leptos and Sycamore ease the pain of moving signals in closures (in particular, event listeners) by making them `Copy`, to avoid the `{ let count = count.clone(); move |_| ... }` that's very familiar in Rust UI code. Sycamore does this by using bump allocation to tie the lifetimes of its signals to its scopes: since references are `Copy`, `&'a Signal<T>` can be moved into a closure. Leptos does this by using arena allocation and passing around indices: types like `ReadSignal<T>`, `WriteSignal<T>`, and `Memo<T>` are actually wrappers for indices into an arena. This means that both scopes and signals are both `Copy` and `'static` in Leptos, which means that they can be moved easily into closures without adding lifetime complexity.
+- **Templating DSLs:** Sycamore uses a custom templating language for its views, while Leptos uses a JSX-like template format.
+- **`'static` signals:** One of Leptos’s main innovations was the creation of `Copy + 'static` signals, which have excellent ergonomics. Sycamore is in the process of adopting the same pattern, but this is not yet released.
+- **Perseus vs. server functions:** The Perseus metaframework provides an opinionated way to build Sycamore apps that include server functionality. Leptos instead provides primitives like server functions in the core of the framework.

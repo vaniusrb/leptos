@@ -1,20 +1,18 @@
 extend = [
-    { path = "../cargo-make/compile.toml" },
-    { path = "../cargo-make/clean.toml" },
-    { path = "../cargo-make/lint.toml" },
-    { path = "../cargo-make/node.toml" },
+  { path = "./compile.toml" },
+  { path = "./clean.toml" },
+  { path = "./lint.toml" },
+  { path = "./node.toml" },
+  { path = "./process.toml" },
 ]
 
 # CI Stages
 
 [tasks.ci]
-dependencies = ["prepare", "lint", "build", "test-flow", "integration-test"]
+dependencies = ["prepare", "lint", "test-flow", "integration-test"]
 
 [tasks.prepare]
 dependencies = ["setup-node"]
-
-[tasks.lint]
-dependencies = ["check-style"]
 
 [tasks.integration-test]
 

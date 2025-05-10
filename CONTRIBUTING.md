@@ -62,7 +62,7 @@ are a few guidelines that will make it a better experience for everyone:
 - If it’s an unsolicited PR not linked to an open issue, please include a
   specific explanation for what it’s trying to achieve. For example: “When I
   was trying to deploy my app under _circumstances X_, I found that the way
-  _function Z_ was implemented caused _issue Z_. This PR should fix that by
+  _function Y_ was implemented caused _issue Z_. This PR should fix that by
   _solution._”
 - Our CI tests every PR against all the existing examples, sometimes requiring
   compilation for both server and client side, etc. It’s thorough but slow. If
@@ -72,12 +72,19 @@ check-examples`.
 
 ## Before Submitting a PR
 
-We have a fairly extensive CI setup that runs both lints (like `rustfmt` and `clippy`) 
+We have a fairly extensive CI setup that runs both lints (like `rustfmt` and `clippy`)
 and tests on PRs. You can run most of these locally if you have `cargo-make` installed.
+
+Note that some of the `rustfmt` settings used require usage of the nightly compiler.
+Formatting the code using the stable toolchain may result in a wrong code format and
+subsequently CI errors.
+Run `cargo +nightly fmt` if you want to keep the stable toolchain active.
+You may want to let your IDE automatically use the `+nightly` parameter when a
+"format on save" action is used.
 
 If you added an example, make sure to add it to the list in `examples/Makefile.toml`.
 
-From the root directory of the repo, run 
+From the root directory of the repo, run
 - `cargo +nightly fmt`
 - `cargo +nightly make check`
 - `cargo +nightly make test`

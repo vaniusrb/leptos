@@ -1,9 +1,37 @@
 //! A variety of DOM utility functions.
 
-use crate::{events::typed as ev, is_server, window};
-use leptos_reactive::on_cleanup;
+use or_poisoned::OrPoisoned;
+#[cfg(debug_assertions)]
+use reactive_graph::diagnostics::SpecialNonReactiveZone;
+use reactive_graph::owner::Owner;
+use send_wrapper::SendWrapper;
 use std::time::Duration;
+use tachys::html::event::EventDescriptor;
+#[cfg(feature = "tracing")]
+use tracing::instrument;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue, UnwrapThrowExt};
+
+thread_local! {
+    pub(crate) static WINDOW: web_sys::Window = web_sys::window().unwrap_throw();
+
+    pub(crate) static DOCUMENT: web_sys::Document = web_sys::window().unwrap_throw().document().unwrap_throw();
+}
+
+/// Returns the [`Window`](https://developer.mozilla.org/en-US/docs/Web/API/Window).
+///
+/// This is cached as a thread-local variable, so calling `window()` multiple times
+/// requires only one call out to JavaScript.
+pub fn window() -> web_sys::Window {
+    WINDOW.with(Clone::clone)
+}
+
+/// Returns the [`Document`](https://developer.mozilla.org/en-US/docs/Web/API/Document).
+///
+/// This is cached as a thread-local variable, so calling `document()` multiple times
+/// requires only one call out to JavaScript.
+pub fn document() -> web_sys::Document {
+    DOCUMENT.with(Clone::clone)
+}
 
 /// Sets a property on a DOM element.
 pub fn set_property(
@@ -19,6 +47,7 @@ pub fn set_property(
 }
 
 /// Gets the value of a property set on a DOM element.
+#[doc(hidden)]
 pub fn get_property(
     el: &web_sys::Element,
     prop_name: &str,
@@ -38,7 +67,13 @@ pub fn location_hash() -> Option<String> {
     if is_server() {
         None
     } else {
-        location().hash().ok().map(|hash| hash.replace('#', ""))
+        location()
+            .hash()
+            .ok()
+            .map(|hash| match hash.chars().next() {
+                Some('#') => hash[1..].to_string(),
+                _ => hash,
+            })
     }
 }
 
@@ -96,29 +131,54 @@ impl AnimationFrameRequestHandle {
 
 /// Runs the given function between the next repaint using
 /// [`Window.requestAnimationFrame`](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame).
-#[cfg_attr(debug_assertions, instrument(level = "trace", skip_all))]
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
+#[cfg_attr(feature = "tracing", instrument(level = "trace", skip_all))]
 #[inline(always)]
 pub fn request_animation_frame(cb: impl FnOnce() + 'static) {
     _ = request_animation_frame_with_handle(cb);
 }
 
+// Closure::once_into_js only frees the callback when it's actually
+// called, so this instead uses into_js_value, which can be freed by
+// the host JS engine's GC if it supports weak references (which all
+// modern browser engines do).  The way this works is that the provided
+// callback's captured data is dropped immediately after being called,
+// as before, but it leaves behind a small stub closure rust-side that
+// will be freed "eventually" by the JS GC.  If the function is never
+// called (e.g., it's a cancelled timeout or animation frame callback)
+// then it will also be freed eventually.
+fn closure_once(cb: impl FnOnce() + 'static) -> JsValue {
+    let mut wrapped_cb: Option<Box<dyn FnOnce()>> = Some(Box::new(cb));
+    let closure = Closure::new(move || {
+        if let Some(cb) = wrapped_cb.take() {
+            cb()
+        }
+    });
+    closure.into_js_value()
+}
+
 /// Runs the given function between the next repaint using
 /// [`Window.requestAnimationFrame`](https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame),
 /// returning a cancelable handle.
-#[cfg_attr(debug_assertions, instrument(level = "trace", skip_all))]
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
+#[cfg_attr(feature = "tracing", instrument(level = "trace", skip_all))]
 #[inline(always)]
 pub fn request_animation_frame_with_handle(
     cb: impl FnOnce() + 'static,
 ) -> Result<AnimationFrameRequestHandle, JsValue> {
-    cfg_if::cfg_if! {
-      if #[cfg(debug_assertions)] {
-        let span = ::tracing::Span::current();
-        let cb = move || {
-          let _guard = span.enter();
-          cb();
-        };
-      }
-    }
+    #[cfg(feature = "tracing")]
+    let span = ::tracing::Span::current();
+    #[cfg(feature = "tracing")]
+    let cb = move || {
+        let _guard = span.enter();
+        cb();
+    };
 
     #[inline(never)]
     fn raf(cb: JsValue) -> Result<AnimationFrameRequestHandle, JsValue> {
@@ -127,7 +187,7 @@ pub fn request_animation_frame_with_handle(
             .map(AnimationFrameRequestHandle)
     }
 
-    raf(Closure::once_into_js(cb))
+    raf(closure_once(cb))
 }
 
 /// Handle that is generated by [request_idle_callback_with_handle] and can be
@@ -145,7 +205,11 @@ impl IdleCallbackHandle {
 
 /// Queues the given function during an idle period using
 /// [`Window.requestIdleCallback`](https://developer.mozilla.org/en-US/docs/Web/API/window/requestIdleCallback).
-#[cfg_attr(debug_assertions, instrument(level = "trace", skip_all))]
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
+#[cfg_attr(feature = "tracing", instrument(level = "trace", skip_all))]
 #[inline(always)]
 pub fn request_idle_callback(cb: impl Fn() + 'static) {
     _ = request_idle_callback_with_handle(cb);
@@ -154,20 +218,22 @@ pub fn request_idle_callback(cb: impl Fn() + 'static) {
 /// Queues the given function during an idle period using
 /// [`Window.requestIdleCallback`](https://developer.mozilla.org/en-US/docs/Web/API/window/requestIdleCallback),
 /// returning a cancelable handle.
-#[cfg_attr(debug_assertions, instrument(level = "trace", skip_all))]
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
+#[cfg_attr(feature = "tracing", instrument(level = "trace", skip_all))]
 #[inline(always)]
 pub fn request_idle_callback_with_handle(
     cb: impl Fn() + 'static,
 ) -> Result<IdleCallbackHandle, JsValue> {
-    cfg_if::cfg_if! {
-      if #[cfg(debug_assertions)] {
-        let span = ::tracing::Span::current();
-        let cb = move || {
-          let _guard = span.enter();
-          cb();
-        };
-      }
-    }
+    #[cfg(feature = "tracing")]
+    let span = ::tracing::Span::current();
+    #[cfg(feature = "tracing")]
+    let cb = move || {
+        let _guard = span.enter();
+        cb();
+    };
 
     #[inline(never)]
     fn ric(cb: Box<dyn Fn()>) -> Result<IdleCallbackHandle, JsValue> {
@@ -179,6 +245,28 @@ pub fn request_idle_callback_with_handle(
     }
 
     ric(Box::new(cb))
+}
+
+/// A microtask is a short function which will run after the current task has
+/// completed its work and when there is no other code waiting to be run before
+/// control of the execution context is returned to the browser's event loop.
+///
+/// Microtasks are especially useful for libraries and frameworks that need
+/// to perform final cleanup or other just-before-rendering tasks.
+///
+/// [MDN queueMicrotask](https://developer.mozilla.org/en-US/docs/Web/API/queueMicrotask)
+///
+/// <div class="warning">The task is called outside of the ownership tree, this means that if you want to access for example the context you need to reestablish the owner.</div>
+pub fn queue_microtask(task: impl FnOnce() + 'static) {
+    use js_sys::{Function, Reflect};
+
+    let task = Closure::once_into_js(task);
+    let window = web_sys::window().expect("window not available");
+    let queue_microtask =
+        Reflect::get(&window, &JsValue::from_str("queueMicrotask"))
+            .expect("queueMicrotask not available");
+    let queue_microtask = queue_microtask.unchecked_into::<Function>();
+    _ = queue_microtask.call1(&JsValue::UNDEFINED, &task);
 }
 
 /// Handle that is generated by [set_timeout_with_handle] and can be used to clear the timeout.
@@ -195,8 +283,12 @@ impl TimeoutHandle {
 
 /// Executes the given function after the given duration of time has passed.
 /// [`setTimeout()`](https://developer.mozilla.org/en-US/docs/Web/API/setTimeout).
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
 #[cfg_attr(
-  any(debug_assertions, feature = "ssr"),
+  feature = "tracing",
   instrument(level = "trace", skip_all, fields(duration = ?duration))
 )]
 pub fn set_timeout(cb: impl FnOnce() + 'static, duration: Duration) {
@@ -205,8 +297,12 @@ pub fn set_timeout(cb: impl FnOnce() + 'static, duration: Duration) {
 
 /// Executes the given function after the given duration of time has passed, returning a cancelable handle.
 /// [`setTimeout()`](https://developer.mozilla.org/en-US/docs/Web/API/setTimeout).
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
 #[cfg_attr(
-  any(debug_assertions, feature = "ssr"),
+  feature = "tracing",
   instrument(level = "trace", skip_all, fields(duration = ?duration))
 )]
 #[inline(always)]
@@ -214,17 +310,19 @@ pub fn set_timeout_with_handle(
     cb: impl FnOnce() + 'static,
     duration: Duration,
 ) -> Result<TimeoutHandle, JsValue> {
-    cfg_if::cfg_if! {
-      if #[cfg(debug_assertions)] {
-        let span = ::tracing::Span::current();
-        let cb = move || {
-          let prev = leptos_reactive::SpecialNonReactiveZone::enter();
-          let _guard = span.enter();
-          cb();
-          leptos_reactive::SpecialNonReactiveZone::exit(prev);
-        };
-      }
-    }
+    #[cfg(debug_assertions)]
+    let cb = || {
+        let _z = SpecialNonReactiveZone::enter();
+        cb();
+    };
+
+    #[cfg(feature = "tracing")]
+    let span = ::tracing::Span::current();
+    #[cfg(feature = "tracing")]
+    let cb = move || {
+        let _guard = span.enter();
+        cb();
+    };
 
     #[inline(never)]
     fn st(cb: JsValue, duration: Duration) -> Result<TimeoutHandle, JsValue> {
@@ -236,7 +334,7 @@ pub fn set_timeout_with_handle(
             .map(TimeoutHandle)
     }
 
-    st(Closure::once_into_js(cb), duration)
+    st(closure_once(cb), duration)
 }
 
 /// "Debounce" a callback function. This will cause it to wait for a period of `delay`
@@ -245,7 +343,7 @@ pub fn set_timeout_with_handle(
 /// listeners to prevent them from firing constantly as you type.
 ///
 /// ```
-/// use leptos::{leptos_dom::helpers::debounce, *};
+/// use leptos::{leptos_dom::helpers::debounce, logging::log, prelude::*, *};
 ///
 /// #[component]
 /// fn DebouncedButton() -> impl IntoView {
@@ -259,55 +357,59 @@ pub fn set_timeout_with_handle(
 ///     }
 /// }
 /// ```
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
 pub fn debounce<T: 'static>(
     delay: Duration,
-    #[cfg(debug_assertions)] mut cb: impl FnMut(T) + 'static,
-    #[cfg(not(debug_assertions))] cb: impl FnMut(T) + 'static,
+    mut cb: impl FnMut(T) + 'static,
 ) -> impl FnMut(T) {
-    use std::{
-        cell::{Cell, RefCell},
-        rc::Rc,
+    use std::sync::{Arc, RwLock};
+
+    #[cfg(debug_assertions)]
+    #[allow(unused_mut)]
+    let mut cb = move |value| {
+        let _z = SpecialNonReactiveZone::enter();
+        cb(value);
     };
 
-    cfg_if::cfg_if! {
-      if #[cfg(debug_assertions)] {
-        let span = ::tracing::Span::current();
-        let cb = move |value| {
-          let prev = leptos_reactive::SpecialNonReactiveZone::enter();
-          let _guard = span.enter();
-          cb(value);
-          leptos_reactive::SpecialNonReactiveZone::exit(prev);
-        };
-      }
-    }
-    let cb = Rc::new(RefCell::new(cb));
+    #[cfg(feature = "tracing")]
+    let span = ::tracing::Span::current();
+    #[cfg(feature = "tracing")]
+    #[allow(unused_mut)]
+    let mut cb = move |value| {
+        let _guard = span.enter();
+        cb(value);
+    };
 
-    let timer = Rc::new(Cell::new(None::<TimeoutHandle>));
+    let cb = Arc::new(RwLock::new(cb));
+    let timer = Arc::new(RwLock::new(None::<TimeoutHandle>));
 
-    on_cleanup({
-        let timer = Rc::clone(&timer);
+    Owner::on_cleanup({
+        let timer = Arc::clone(&timer);
         move || {
-            if let Some(timer) = timer.take() {
+            if let Some(timer) = timer.write().or_poisoned().take() {
                 timer.clear();
             }
         }
     });
 
     move |arg| {
-        if let Some(timer) = timer.take() {
+        if let Some(timer) = timer.write().unwrap().take() {
             timer.clear();
         }
         let handle = set_timeout_with_handle(
             {
-                let cb = Rc::clone(&cb);
+                let cb = Arc::clone(&cb);
                 move || {
-                    cb.borrow_mut()(arg);
+                    cb.write().unwrap()(arg);
                 }
             },
             delay,
         );
         if let Ok(handle) = handle {
-            timer.set(Some(handle));
+            *timer.write().or_poisoned() = Some(handle);
         }
     }
 }
@@ -324,11 +426,14 @@ impl IntervalHandle {
     }
 }
 
-/// Repeatedly calls the given function, with a delay of the given duration between calls,
-/// returning a cancelable handle.
+/// Repeatedly calls the given function, with a delay of the given duration between calls.
 /// See [`setInterval()`](https://developer.mozilla.org/en-US/docs/Web/API/setInterval).
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
 #[cfg_attr(
-  any(debug_assertions, feature = "ssr"),
+  feature = "tracing",
   instrument(level = "trace", skip_all, fields(duration = ?duration))
 )]
 pub fn set_interval(cb: impl Fn() + 'static, duration: Duration) {
@@ -338,8 +443,12 @@ pub fn set_interval(cb: impl Fn() + 'static, duration: Duration) {
 /// Repeatedly calls the given function, with a delay of the given duration between calls,
 /// returning a cancelable handle.
 /// See [`setInterval()`](https://developer.mozilla.org/en-US/docs/Web/API/setInterval).
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
 #[cfg_attr(
-  any(debug_assertions, feature = "ssr"),
+  feature = "tracing",
   instrument(level = "trace", skip_all, fields(duration = ?duration))
 )]
 #[inline(always)]
@@ -347,17 +456,18 @@ pub fn set_interval_with_handle(
     cb: impl Fn() + 'static,
     duration: Duration,
 ) -> Result<IntervalHandle, JsValue> {
-    cfg_if::cfg_if! {
-      if #[cfg(debug_assertions)] {
-        let span = ::tracing::Span::current();
-        let cb = move || {
-          let prev = leptos_reactive::SpecialNonReactiveZone::enter();
-          let _guard = span.enter();
-          cb();
-          leptos_reactive::SpecialNonReactiveZone::exit(prev);
-        };
-      }
-    }
+    #[cfg(debug_assertions)]
+    let cb = move || {
+        let _z = SpecialNonReactiveZone::enter();
+        cb();
+    };
+    #[cfg(feature = "tracing")]
+    let span = ::tracing::Span::current();
+    #[cfg(feature = "tracing")]
+    let cb = move || {
+        let _guard = span.enter();
+        cb();
+    };
 
     #[inline(never)]
     fn si(
@@ -379,8 +489,12 @@ pub fn set_interval_with_handle(
 
 /// Adds an event listener to the `Window`, typed as a generic `Event`,
 /// returning a cancelable handle.
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
 #[cfg_attr(
-  debug_assertions,
+  feature = "tracing",
   instrument(level = "trace", skip_all, fields(event_name = %event_name))
 )]
 #[inline(always)]
@@ -388,17 +502,18 @@ pub fn window_event_listener_untyped(
     event_name: &str,
     cb: impl Fn(web_sys::Event) + 'static,
 ) -> WindowListenerHandle {
-    cfg_if::cfg_if! {
-      if #[cfg(debug_assertions)] {
-        let span = ::tracing::Span::current();
-        let cb = move |e| {
-          let prev = leptos_reactive::SpecialNonReactiveZone::enter();
-          let _guard = span.enter();
-          cb(e);
-          leptos_reactive::SpecialNonReactiveZone::exit(prev);
-        };
-      }
-    }
+    #[cfg(debug_assertions)]
+    let cb = move |e| {
+        let _z = SpecialNonReactiveZone::enter();
+        cb(e);
+    };
+    #[cfg(feature = "tracing")]
+    let span = ::tracing::Span::current();
+    #[cfg(feature = "tracing")]
+    let cb = move |e| {
+        let _guard = span.enter();
+        cb(e);
+    };
 
     if !is_server() {
         #[inline(never)]
@@ -412,6 +527,7 @@ pub fn window_event_listener_untyped(
                 cb.unchecked_ref(),
             );
             let event_name = event_name.to_string();
+            let cb = SendWrapper::new(cb);
             WindowListenerHandle(Box::new(move || {
                 _ = window().remove_event_listener_with_callback(
                     &event_name,
@@ -429,7 +545,10 @@ pub fn window_event_listener_untyped(
 /// Creates a window event listener from a typed event, returning a
 /// cancelable handle.
 /// ```
-/// use leptos::{leptos_dom::helpers::window_event_listener, *};
+/// use leptos::{
+///     ev, leptos_dom::helpers::window_event_listener, logging::log,
+///     prelude::*,
+/// };
 ///
 /// #[component]
 /// fn App() -> impl IntoView {
@@ -442,7 +561,11 @@ pub fn window_event_listener_untyped(
 ///     on_cleanup(move || handle.remove());
 /// }
 /// ```
-pub fn window_event_listener<E: ev::EventDescriptor + 'static>(
+///
+/// ### Note about Context
+///
+/// The callback is called outside of the reactive ownership tree. This means that it does not have access to context via [`use_context`](reactive_graph::owner::use_context). If you want to use context inside the callback, you should either call `use_context` in the body of the component, and move the value into the callback, or access the current owner inside the component body using [`Owner::current`](reactive_graph::owner::Owner::current) and reestablish it in the callback with [`Owner::with`](reactive_graph::owner::Owner::with).
+pub fn window_event_listener<E: EventDescriptor + 'static>(
     event: E,
     cb: impl Fn(E::EventType) + 'static,
 ) -> WindowListenerHandle
@@ -455,10 +578,10 @@ where
 }
 
 /// A handle that can be called to remove a global event listener.
-pub struct WindowListenerHandle(Box<dyn FnOnce()>);
+pub struct WindowListenerHandle(Box<dyn FnOnce() + Send + Sync>);
 
-impl std::fmt::Debug for WindowListenerHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for WindowListenerHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("WindowListenerHandle").finish()
     }
 }
@@ -470,12 +593,15 @@ impl WindowListenerHandle {
     }
 }
 
-#[doc(hidden)]
-/// This exists only to enable type inference on event listeners when in SSR mode.
-pub fn ssr_event_listener<E: crate::ev::EventDescriptor + 'static>(
-    event: E,
-    event_handler: impl FnMut(E::EventType) + 'static,
-) {
-    _ = event;
-    _ = event_handler;
+fn is_server() -> bool {
+    #[cfg(feature = "hydration")]
+    {
+        Owner::current_shared_context()
+            .map(|sc| !sc.is_browser())
+            .unwrap_or(false)
+    }
+    #[cfg(not(feature = "hydration"))]
+    {
+        false
+    }
 }

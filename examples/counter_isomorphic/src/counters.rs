@@ -1,30 +1,39 @@
-use cfg_if::cfg_if;
-use leptos::*;
-use leptos_meta::*;
-use leptos_router::*;
+use leptos::prelude::*;
+use leptos_router::{
+    components::{FlatRoutes, Route, Router, A},
+    StaticSegment,
+};
+#[cfg(feature = "ssr")]
+use tracing::instrument;
 
-cfg_if! {
-    if #[cfg(feature = "ssr")] {
-        use std::sync::atomic::{AtomicI32, Ordering};
-        use broadcaster::BroadcastChannel;
-        static COUNT: AtomicI32 = AtomicI32::new(0);
+#[cfg(feature = "ssr")]
+pub mod ssr_imports {
+    pub use broadcaster::BroadcastChannel;
+    pub use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::LazyLock;
 
-        lazy_static::lazy_static! {
-            pub static ref COUNT_CHANNEL: BroadcastChannel<i32> = BroadcastChannel::new();
-        }
-    }
+    pub static COUNT: AtomicI32 = AtomicI32::new(0);
+
+    pub static COUNT_CHANNEL: LazyLock<BroadcastChannel<i32>> =
+        LazyLock::new(BroadcastChannel::<i32>::new);
 }
 
 #[server]
+#[cfg_attr(feature = "ssr", instrument)]
 pub async fn get_server_count() -> Result<i32, ServerFnError> {
+    use ssr_imports::*;
+
     Ok(COUNT.load(Ordering::Relaxed))
 }
 
 #[server]
+#[cfg_attr(feature = "ssr", instrument)]
 pub async fn adjust_server_count(
     delta: i32,
     msg: String,
 ) -> Result<i32, ServerFnError> {
+    use ssr_imports::*;
+
     let new = COUNT.load(Ordering::Relaxed) + delta;
     COUNT.store(new, Ordering::Relaxed);
     _ = COUNT_CHANNEL.send(&new).await;
@@ -33,14 +42,16 @@ pub async fn adjust_server_count(
 }
 
 #[server]
+#[cfg_attr(feature = "ssr", instrument)]
 pub async fn clear_server_count() -> Result<i32, ServerFnError> {
+    use ssr_imports::*;
+
     COUNT.store(0, Ordering::Relaxed);
     _ = COUNT_CHANNEL.send(&0).await;
     Ok(0)
 }
 #[component]
 pub fn Counters() -> impl IntoView {
-    provide_meta_context();
     view! {
         <Router>
             <header>
@@ -63,28 +74,12 @@ pub fn Counters() -> impl IntoView {
                     </li>
                 </ul>
             </nav>
-            <Link rel="shortcut icon" type_="image/ico" href="/favicon.ico"/>
             <main>
-                <Routes>
-                    <Route
-                        path=""
-                        view=|| {
-                            view! { <Counter/> }
-                        }
-                    />
-                    <Route
-                        path="form"
-                        view=|| {
-                            view! { <FormCounter/> }
-                        }
-                    />
-                    <Route
-                        path="multi"
-                        view=|| {
-                            view! { <MultiuserCounter/> }
-                        }
-                    />
-                </Routes>
+                <FlatRoutes fallback=|| "Not found.">
+                    <Route path=StaticSegment("") view=Counter/>
+                    <Route path=StaticSegment("form") view=FormCounter/>
+                    <Route path=StaticSegment("multi") view=MultiuserCounter/>
+                </FlatRoutes>
             </main>
         </Router>
     }
@@ -96,10 +91,10 @@ pub fn Counters() -> impl IntoView {
 // This is the typical pattern for a CRUD app
 #[component]
 pub fn Counter() -> impl IntoView {
-    let dec = create_action(|_| adjust_server_count(-1, "decing".into()));
-    let inc = create_action(|_| adjust_server_count(1, "incing".into()));
-    let clear = create_action(|_| clear_server_count());
-    let counter = create_resource(
+    let dec = Action::new(|_: &()| adjust_server_count(-1, "decing".into()));
+    let inc = Action::new(|_: &()| adjust_server_count(1, "incing".into()));
+    let clear = Action::new(|_: &()| clear_server_count());
+    let counter = Resource::new(
         move || {
             (
                 dec.version().get(),
@@ -110,33 +105,20 @@ pub fn Counter() -> impl IntoView {
         |_| get_server_count(),
     );
 
-    let value =
-        move || counter.get().map(|count| count.unwrap_or(0)).unwrap_or(0);
-    let error_msg = move || {
-        counter.get().and_then(|res| match res {
-            Ok(_) => None,
-            Err(e) => Some(e),
-        })
-    };
-
     view! {
         <div>
             <h2>"Simple Counter"</h2>
             <p>
                 "This counter sets the value on the server and automatically reloads the new value."
             </p>
-            <div>
-                <button on:click=move |_| clear.dispatch(())>"Clear"</button>
-                <button on:click=move |_| dec.dispatch(())>"-1"</button>
-                <span>"Value: " {value} "!"</span>
-                <button on:click=move |_| inc.dispatch(())>"+1"</button>
-            </div>
-            {move || {
-                error_msg()
-                    .map(|msg| {
-                        view! { <p>"Error: " {msg.to_string()}</p> }
-                    })
-            }}
+            <ErrorBoundary fallback=|errors| move || format!("Error: {:#?}", errors.get())>
+                <div>
+                    <button on:click=move |_| { clear.dispatch(()); }>"Clear"</button>
+                    <button on:click=move |_| { dec.dispatch(()); }>"-1"</button>
+                    <span>"Value: " <Suspense>{counter} "!"</Suspense></span>
+                    <button on:click=move |_| { inc.dispatch(()); }>"+1"</button>
+                </div>
+            </ErrorBoundary>
         </div>
     }
 }
@@ -148,10 +130,10 @@ pub fn Counter() -> impl IntoView {
 pub fn FormCounter() -> impl IntoView {
     // these struct names are auto-generated by #[server]
     // they are just the PascalCased versions of the function names
-    let adjust = create_server_action::<AdjustServerCount>();
-    let clear = create_server_action::<ClearServerCount>();
+    let adjust = ServerAction::<AdjustServerCount>::new();
+    let clear = ServerAction::<ClearServerCount>::new();
 
-    let counter = create_resource(
+    let counter = Resource::new(
         move || (adjust.version().get(), clear.version().get()),
         |_| {
             log::debug!("FormCounter running fetcher");
@@ -182,7 +164,7 @@ pub fn FormCounter() -> impl IntoView {
                     <input type="hidden" name="msg" value="form value down"/>
                     <input type="submit" value="-1"/>
                 </ActionForm>
-                <span>"Value: " {move || value().to_string()} "!"</span>
+                <span>"Value: " <Suspense>{value} "!"</Suspense></span>
                 <ActionForm action=adjust>
                     <input type="hidden" name="delta" value="1"/>
                     <input type="hidden" name="msg" value="form value up"/>
@@ -200,18 +182,21 @@ pub fn FormCounter() -> impl IntoView {
 #[component]
 pub fn MultiuserCounter() -> impl IntoView {
     let dec =
-        create_action(|_| adjust_server_count(-1, "dec dec goose".into()));
-    let inc = create_action(|_| adjust_server_count(1, "inc inc moose".into()));
-    let clear = create_action(|_| clear_server_count());
+        Action::new(|_: &()| adjust_server_count(-1, "dec dec goose".into()));
+    let inc =
+        Action::new(|_: &()| adjust_server_count(1, "inc inc moose".into()));
+    let clear = Action::new(|_: &()| clear_server_count());
 
     #[cfg(not(feature = "ssr"))]
     let multiplayer_value = {
         use futures::StreamExt;
+        use send_wrapper::SendWrapper;
 
-        let mut source =
+        let mut source = SendWrapper::new(
             gloo_net::eventsource::futures::EventSource::new("/api/events")
-                .expect("couldn't connect to SSE stream");
-        let s = create_signal_from_stream(
+                .expect("couldn't connect to SSE stream"),
+        );
+        let s = ReadSignal::from_stream_unsync(
             source
                 .subscribe("message")
                 .unwrap()
@@ -225,12 +210,12 @@ pub fn MultiuserCounter() -> impl IntoView {
                 }),
         );
 
-        on_cleanup(move || source.close());
+        on_cleanup(move || source.take().close());
         s
     };
 
     #[cfg(feature = "ssr")]
-    let (multiplayer_value, _) = create_signal(None::<i32>);
+    let (multiplayer_value, _) = signal(None::<i32>);
 
     view! {
         <div>
@@ -239,12 +224,12 @@ pub fn MultiuserCounter() -> impl IntoView {
                 "This one uses server-sent events (SSE) to live-update when other users make changes."
             </p>
             <div>
-                <button on:click=move |_| clear.dispatch(())>"Clear"</button>
-                <button on:click=move |_| dec.dispatch(())>"-1"</button>
+                <button on:click=move |_| { clear.dispatch(()); }>"Clear"</button>
+                <button on:click=move |_| { dec.dispatch(()); }>"-1"</button>
                 <span>
                     "Multiplayer Value: " {move || multiplayer_value.get().unwrap_or_default()}
                 </span>
-                <button on:click=move |_| inc.dispatch(())>"+1"</button>
+                <button on:click=move |_| { inc.dispatch(()); }>"+1"</button>
             </div>
         </div>
     }

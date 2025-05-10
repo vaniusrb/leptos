@@ -1,81 +1,49 @@
-error: expected parameter name, found `,`
-  --> tests/ui/component.rs:16:5
-   |
-16 |     ,
-   |     ^ expected parameter name
-
-error: expected parameter name, found `,`
-  --> tests/ui/component.rs:24:5
-   |
-24 |     ,
-   |     ^ expected parameter name
-
-error: expected parameter name, found `,`
-  --> tests/ui/component.rs:32:5
-   |
-32 |     ,
-   |     ^ expected parameter name
-
-error: expected parameter name, found `,`
-  --> tests/ui/component.rs:40:5
-   |
-40 |     ,
-   |     ^ expected parameter name
-
-error: expected parameter name, found `,`
-  --> tests/ui/component.rs:48:5
-   |
-48 |     ,
-   |     ^ expected parameter name
-
-error: return type is incorrect
- --> tests/ui/component.rs:4:1
-  |
-4 | fn missing_scope() {}
-  | ^^^^^^^^^^^^^^^^^^
-  |
-  = help: return signature must be `-> impl IntoView`
-
-error: return type is incorrect
- --> tests/ui/component.rs:7:1
-  |
-7 | fn missing_return_type() {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = help: return signature must be `-> impl IntoView`
-
-error: supported fields are `optional`, `optional_no_strip`, `strip_option`, `default` and `into`
+error: supported fields are `optional`, `optional_no_strip`, `strip_option`, `default`, `into`, `attrs` and `name`
   --> tests/ui/component.rs:10:31
    |
 10 | fn unknown_prop_option(#[prop(hello)] test: bool) -> impl IntoView {
    |                               ^^^^^
 
-error: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`
-  --> tests/ui/component.rs:16:5
+error: `optional` conflicts with mutually exclusive `optional_no_strip`
+  --> tests/ui/component.rs:16:12
    |
-16 |     ,
-   |     ^
+16 |     #[prop(optional, optional_no_strip)] conflicting: bool,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`
-  --> tests/ui/component.rs:24:5
+error: `optional` conflicts with mutually exclusive `strip_option`
+  --> tests/ui/component.rs:23:12
    |
-24 |     ,
-   |     ^
+23 |     #[prop(optional, strip_option)] conflicting: bool,
+   |            ^^^^^^^^^^^^^^^^^^^^^^
 
-error: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`
-  --> tests/ui/component.rs:32:5
+error: `optional_no_strip` conflicts with mutually exclusive `strip_option`
+  --> tests/ui/component.rs:30:12
    |
-32 |     ,
-   |     ^
+30 |     #[prop(optional_no_strip, strip_option)] conflicting: bool,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`
-  --> tests/ui/component.rs:40:5
-   |
-40 |     ,
-   |     ^
+error: unexpected end of input, expected `=` or `(`
 
-error: expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`
-  --> tests/ui/component.rs:48:5
+       = help: try `#[prop(default = 5 * 10)]`
+  --> tests/ui/component.rs:35:1
    |
-48 |     ,
-   |     ^
+35 | #[component]
+   | ^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: unexpected end of input, expected one of: identifier, `::`, `<`, `_`, literal, `const`, `ref`, `mut`, `&`, parentheses, square brackets, `..`, `const`
+
+       = help: try `#[prop(default = 5 * 10)]`
+  --> tests/ui/component.rs:40:1
+   |
+40 | #[component]
+   | ^^^^^^^^^^^^
+   |
+   = note: this error originates in the attribute macro `component` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: destructured props must be given a name e.g. #[prop(name = "data")]
+  --> tests/ui/component.rs:48:29
+   |
+48 | fn destructure_without_name((default, value): (bool, i32)) -> impl IntoView {
+   |                             ^^^^^^^^^^^^^^^^

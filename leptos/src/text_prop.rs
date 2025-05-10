@@ -1,10 +1,11 @@
-use leptos_reactive::Oco;
-use std::{fmt::Debug, rc::Rc};
+use oco_ref::Oco;
+use std::sync::Arc;
+use tachys::prelude::IntoAttributeValue;
 
 /// Describes a value that is either a static or a reactive string, i.e.,
 /// a [`String`], a [`&str`], or a reactive `Fn() -> String`.
 #[derive(Clone)]
-pub struct TextProp(Rc<dyn Fn() -> Oco<'static, str>>);
+pub struct TextProp(Arc<dyn Fn() -> Oco<'static, str> + Send + Sync>);
 
 impl TextProp {
     /// Accesses the current value of the property.
@@ -14,46 +15,70 @@ impl TextProp {
     }
 }
 
-impl Debug for TextProp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for TextProp {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("TextProp").finish()
     }
 }
 
 impl From<String> for TextProp {
     fn from(s: String) -> Self {
-        let s: Oco<'_, str> = Oco::Counted(Rc::from(s));
-        TextProp(Rc::new(move || s.clone()))
+        let s: Oco<'_, str> = Oco::Counted(Arc::from(s));
+        TextProp(Arc::new(move || s.clone()))
     }
 }
 
 impl From<&'static str> for TextProp {
     fn from(s: &'static str) -> Self {
         let s: Oco<'_, str> = s.into();
-        TextProp(Rc::new(move || s.clone()))
+        TextProp(Arc::new(move || s.clone()))
     }
 }
 
-impl From<Rc<str>> for TextProp {
-    fn from(s: Rc<str>) -> Self {
+impl From<Arc<str>> for TextProp {
+    fn from(s: Arc<str>) -> Self {
         let s: Oco<'_, str> = s.into();
-        TextProp(Rc::new(move || s.clone()))
+        TextProp(Arc::new(move || s.clone()))
     }
 }
 
 impl From<Oco<'static, str>> for TextProp {
     fn from(s: Oco<'static, str>) -> Self {
-        TextProp(Rc::new(move || s.clone()))
+        TextProp(Arc::new(move || s.clone()))
     }
 }
 
+// TODO
+/*impl<T> From<T> for MaybeProp<TextProp>
+where
+    T: Into<Oco<'static, str>>,
+{
+    fn from(s: T) -> Self {
+        Self(Some(MaybeSignal::from(Some(s.into().into()))))
+    }
+}*/
+
 impl<F, S> From<F> for TextProp
 where
-    F: Fn() -> S + 'static,
+    F: Fn() -> S + 'static + Send + Sync,
     S: Into<Oco<'static, str>>,
 {
     #[inline(always)]
     fn from(s: F) -> Self {
-        TextProp(Rc::new(move || s().into()))
+        TextProp(Arc::new(move || s().into()))
+    }
+}
+
+impl Default for TextProp {
+    fn default() -> Self {
+        Self(Arc::new(|| Oco::Borrowed("")))
+    }
+}
+
+impl IntoAttributeValue for TextProp {
+    type Output = Arc<dyn Fn() -> Oco<'static, str> + Send + Sync>;
+
+    fn into_attribute_value(self) -> Self::Output {
+        self.0
     }
 }

@@ -1,5 +1,15 @@
+[tasks.cargo-all-features]
+install_script = '''
+cargo install --git https://github.com/sabify/cargo-all-features --branch arbitrary-command-support
+'''
+
 [tasks.install-cargo-leptos]
 install_crate = { crate_name = "cargo-leptos", binary = "cargo-leptos", test_arg = "--help" }
+args = ["--locked"]
+
+[tasks.cargo-leptos-e2e]
+command = "cargo"
+args = ["leptos", "end-to-end"]
 
 [tasks.build]
 clear = true
@@ -11,45 +21,16 @@ clear = true
 dependencies = ["check-debug", "check-release"]
 
 [tasks.check-debug]
-toolchain = "nightly"
+dependencies = ["cargo-all-features"]
 command = "cargo"
-args = ["check-all-features"]
-install_crate = "cargo-all-features"
+args = ["all-features", "clippy"]
 
 [tasks.check-release]
-toolchain = "nightly"
+dependencies = ["cargo-all-features"]
 command = "cargo"
-args = ["check-all-features", "--release"]
-install_crate = "cargo-all-features"
+args = ["all-features", "clippy", "--release"]
 
 [tasks.start-client]
+dependencies = ["install-cargo-leptos"]
 command = "cargo"
 args = ["leptos", "watch"]
-
-[tasks.stop-client]
-condition = { env_set = ["APP_PROCESS_NAME"] }
-script = '''
-  if [ ! -z $(pidof ${APP_PROCESS_NAME}) ]; then
-    pkill -f todo_app_sqlite
-  fi
-
-  if [ ! -z $(pidof ${APP_PROCESS_NAME}) ]; then
-    pkill -f cargo-leptos
-  fi
-'''
-
-[tasks.client-status]
-condition = { env_set = ["APP_PROCESS_NAME"] }
-script = '''
-  if [ -z $(pidof ${APP_PROCESS_NAME}) ]; then
-    echo "  ${APP_PROCESS_NAME} is not running"
-  else
-    echo "  ${APP_PROCESS_NAME} is up"
-  fi
-
-  if [ -z $(pidof cargo-leptos) ]; then
-    echo "  cargo-leptos is not running"
-  else
-    echo "  cargo-leptos is up"
-  fi
-'''
