@@ -16,7 +16,7 @@ thiserror = "1"
 serde_json = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
-proc-macro2 = "1"
+proc-macro2 = "=1.0.94"
 ciborium = "0.2"
 xxhash-rust = { version = "0.8", features = ["const_xxh64"] }
 const_format = "0.2"
